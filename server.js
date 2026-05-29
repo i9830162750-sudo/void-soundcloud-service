@@ -30,18 +30,34 @@ app.use(rateLimit({
   message: { error: 'Too many requests — slow down.' },
 }));
 
-// ── Health ────────────────────────────────────────────────────────────────────
-app.get('/health', (_, res) => res.json({ status: 'ok', service: 'void-soundcloud' }));
+// ── Route helper: register each route at both / and /api/soundcloud/ ──────────
+// Handles cases where Render or a reverse proxy strips/adds a path prefix.
+function route(method, path, handler) {
+  app[method](path, handler);
+  app[method](`/api/soundcloud${path}`, handler);
+}
 
-// ── Search  GET /search?q=query&limit=15 ─────────────────────────────────────
-app.get('/search', async (req, res, next) => {
+// ── Health ────────────────────────────────────────────────────────────────────
+route('get', '/health', (_, res) => res.json({ status: 'ok', service: 'void-soundcloud' }));
+
+// ── Search  GET /search?q=query&type=tracks|playlists|users&limit=15 ──────────
+route('get', '/search', async (req, res, next) => {
   try {
-    const q     = String(req.query.q || '').trim();
+    const q     = String(req.query.q    || '').trim();
+    const type  = String(req.query.type || 'tracks').trim();
     const limit = Math.min(parseInt(req.query.limit || '15'), 30);
     if (!q) return res.status(400).json({ error: 'Missing query parameter: q' });
 
-    const results = await sc.search(q, limit);
-    res.json({ items: results, source: 'soundcloud' });
+    const results = await sc.search(q, limit, type);
+
+    // Shape response based on type so VOID's backend can extract correctly
+    if (type === 'playlists' || type === 'albums') {
+      res.json({ playlists: results, collection: results, source: 'soundcloud' });
+    } else if (type === 'users' || type === 'people') {
+      res.json({ users: results, collection: results, source: 'soundcloud' });
+    } else {
+      res.json({ items: results, collection: results, source: 'soundcloud' });
+    }
   } catch (e) {
     console.error('[SC search]', e.message);
     next(e);
@@ -50,7 +66,7 @@ app.get('/search', async (req, res, next) => {
 
 // ── Stream  GET /stream?id=TRACK_ID ──────────────────────────────────────────
 // Returns { url, mimeType } — same contract as the JioSaavn service
-app.get('/stream', async (req, res, next) => {
+route('get', '/stream', async (req, res, next) => {
   try {
     const id = String(req.query.id || '').trim();
     if (!id) return res.status(400).json({ error: 'Missing id' });
@@ -68,7 +84,7 @@ app.get('/stream', async (req, res, next) => {
 // ── Playlist  GET /playlist?id=PLAYLIST_ID_OR_URL ─────────────────────────────
 // Accepts a numeric SC playlist ID or a full soundcloud.com/…/sets/… URL.
 // Returns { id, title, name, artist, artwork_url, track_count, tracks[] }
-app.get('/playlist', async (req, res, next) => {
+route('get', '/playlist', async (req, res, next) => {
   try {
     const idOrUrl = String(req.query.id || req.query.url || '').trim();
     if (!idOrUrl) return res.status(400).json({ error: 'Missing id or url' });
@@ -84,7 +100,7 @@ app.get('/playlist', async (req, res, next) => {
 });
 
 // ── Single track  GET /track?id=TRACK_ID ─────────────────────────────────────
-app.get('/track', async (req, res, next) => {
+route('get', '/track', async (req, res, next) => {
   try {
     const id = String(req.query.id || '').trim();
     if (!id) return res.status(400).json({ error: 'Missing id' });
@@ -99,7 +115,7 @@ app.get('/track', async (req, res, next) => {
 });
 
 // ── User profile  GET /user?id=USER_ID ───────────────────────────────────────
-app.get('/user', async (req, res, next) => {
+route('get', '/user', async (req, res, next) => {
   try {
     const id = String(req.query.id || '').trim();
     if (!id) return res.status(400).json({ error: 'Missing id' });
@@ -113,7 +129,7 @@ app.get('/user', async (req, res, next) => {
 });
 
 // ── User tracks  GET /user/tracks?id=USER_ID&limit=50&offset=0 ───────────────
-app.get('/user/tracks', async (req, res, next) => {
+route('get', '/user/tracks', async (req, res, next) => {
   try {
     const id     = String(req.query.id || '').trim();
     const limit  = Math.min(parseInt(req.query.limit  || '50'), 50);
