@@ -65,6 +65,69 @@ app.get('/stream', async (req, res, next) => {
   }
 });
 
+// ── Playlist  GET /playlist?id=PLAYLIST_ID_OR_URL ─────────────────────────────
+// Accepts a numeric SC playlist ID or a full soundcloud.com/…/sets/… URL.
+// Returns { id, title, name, artist, artwork_url, track_count, tracks[] }
+app.get('/playlist', async (req, res, next) => {
+  try {
+    const idOrUrl = String(req.query.id || req.query.url || '').trim();
+    if (!idOrUrl) return res.status(400).json({ error: 'Missing id or url' });
+
+    const result = await sc.getPlaylist(idOrUrl);
+    res.json({ data: result });
+  } catch (e) {
+    console.error('[SC playlist]', e.message);
+    // Return 404 for resolve failures (private/deleted playlists), 502 for other errors
+    const status = e.message.includes('404') ? 404 : 502;
+    res.status(status).json({ error: e.message });
+  }
+});
+
+// ── Single track  GET /track?id=TRACK_ID ─────────────────────────────────────
+app.get('/track', async (req, res, next) => {
+  try {
+    const id = String(req.query.id || '').trim();
+    if (!id) return res.status(400).json({ error: 'Missing id' });
+
+    const result = await sc.getTrack(id);
+    res.json({ data: result });
+  } catch (e) {
+    console.error('[SC track]', e.message);
+    const status = e.message.includes('404') ? 404 : 502;
+    res.status(status).json({ error: e.message });
+  }
+});
+
+// ── User profile  GET /user?id=USER_ID ───────────────────────────────────────
+app.get('/user', async (req, res, next) => {
+  try {
+    const id = String(req.query.id || '').trim();
+    if (!id) return res.status(400).json({ error: 'Missing id' });
+
+    const result = await sc.getUser(id);
+    res.json({ data: result });
+  } catch (e) {
+    console.error('[SC user]', e.message);
+    next(e);
+  }
+});
+
+// ── User tracks  GET /user/tracks?id=USER_ID&limit=50&offset=0 ───────────────
+app.get('/user/tracks', async (req, res, next) => {
+  try {
+    const id     = String(req.query.id || '').trim();
+    const limit  = Math.min(parseInt(req.query.limit  || '50'), 50);
+    const offset = parseInt(req.query.offset || '0');
+    if (!id) return res.status(400).json({ error: 'Missing id' });
+
+    const tracks = await sc.getUserTracks(id, limit, offset);
+    res.json({ collection: tracks, source: 'soundcloud' });
+  } catch (e) {
+    console.error('[SC user/tracks]', e.message);
+    next(e);
+  }
+});
+
 // ── Error handler ─────────────────────────────────────────────────────────────
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, _next) => {
